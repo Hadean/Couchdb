@@ -32,56 +32,67 @@
  */
 class Couchdb_Adapter
 {
-	// Connection - Variable
-	private $_connection = NULL;
+	// Configuration - Variable (instanceof Couchdb_Config)
+	private $_config = NULL;
 		
 	/**
 	 * Constructor to create a Connection to the Database. The Connection will be saved for
 	 * future Actions like creating/reading/updating/deleting (CRUD) Documents within the DB.
-	 * @param	Couchdb_Config $connection	Connection Class for the Database
+	 * @param	Couchdb_Config $connection	Configuration Class for the Database
 	 * @return	Couchdb_Adapter
 	 * @throws	Couchdb_Exception_Connection
 	 */
-	public function __construct(Couchdb_Config $connection)
+	public function __construct(Couchdb_Config $config)
 	{
-		$connecter = new Zend_Http_Client;
-		$connecter->setUri('http://' . $connection->getHost() . ':' . $connection->getPort() . '/');
-		if(
-			$connection->getUsername() != NULL
-			&& $connection->getPassword() != NULL
-		)
-		{
-			$connecter->setAuth(
-				$connection->getUsername(), 
-				$connection->getPassword()
-			);
-		}
-		if(!$connecter->request('GET')->isSuccessful())
-		{
-			throw new Couchdb_Exception_Connection("Could not connect to URl: " . 
-				'http://' . $connection->getHost() . ':' . $connection->getPort());
-		}
-		$this->_connection = $connecter;
+		$this->_config = $config;
 		return $this;
 	}
 	
 	/**
+	 * Private Get-Method for the host String of global config variables.
+	 * @return string	Host - String to connect to.
+	 */
+	private function _getHostString()
+	{
+		return 'http://' . $this->_config->getHost() . ':' . $this->_config->getPort() . '/';
+	}
+	
+	/**
 	 * Simple Get-Method for reading Documents from the DB.
-	 * @param	string	$url		URl to read from, including a trailing slash.
-	 * @return	array	$documents	Array with the actual requested Documents.
+	 * @param	string		$url		URl to read from, including a trailing slash.
+	 * @param	string|TRUE	$revision	Revision of Document, TRUE returns the latest Revision.
+	 * @return	array		$documents	Array with the actual requested Documents.
 	 * @throws	Couchdb_Exception_Connection
 	 */	
-	public function getFromUri($url)
+	public function getFromUri($url, $revision = TRUE)
 	{
-		$host = $this->_connection->getUri(TRUE);
-		$uri = $this->_connection->setUri($host . $url)
-								 ->request('GET');
-		if(!$uri->isSuccessful())
+		$connecter = new Zend_Http_Client;
+		if(
+			$this->_config->getUsername() != NULL
+			&& $this->_config->getPassword() != NULL
+		)
 		{
-			throw new Couchdb_Exception_Connection("Could not connect to URl: " . 
-				'http://' . $connection->getHost() . ':' . $connection->getPort() . $url);
+			$connecter->setAuth(
+				$this->_config->getUsername(), 
+				$this->_config->getPassword()
+			);
+		}		
+		$host = $this->_getHostString();
+		$uri = ($revision === TRUE) 
+			? $url
+			: $url . '?rev=' . $revision;
+		$document = $connecter->setUri($host . $uri)
+							  ->request('GET');
+		if(!$document->isSuccessful())
+		{
+			$error = "Could not connect to URl: " . $host . $uri;
+			if($revision !== TRUE)
+			{
+				$error .= ". Also consider that your called revision was compacted away.";
+			}
+			throw new Couchdb_Exception_Connection($error);
 		}
-		$document = json_decode($uri->getBody());
-		return $document;
+		$array = json_decode($document->getBody());
+		return $array;
 	}
 }
